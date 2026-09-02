@@ -98,6 +98,48 @@ npm run flows       # send the 16 demo + adversarial questions through /api/chat
 npm run flows 7     # just flow 7
 ```
 
+## Deploy
+
+Nothing here is platform-specific: it is a stock Next.js 16 App Router app with no database, no
+filesystem writes and no background workers, so any host that runs Node 20.9+ will serve it. `.nvmrc`
+pins 22 and `package.json` declares the floor.
+
+**Vercel** is zero-config — import the repo, set the environment variables below in the project
+settings, and deploy. **Anywhere else** (Render, Fly, a VM, a container):
+
+```bash
+npm ci
+npm run build
+npm start            # honours $PORT
+```
+
+Set these in the platform's environment, *not* in a committed file. `.env.local` is for local
+development only and is gitignored:
+
+| Variable | Set it? |
+|---|---|
+| `ANTHROPIC_API_KEY` | Yes, or the app serves the deterministic no-LLM fallback behind its visible notice |
+| `OPENWEATHER_API_KEY` | Only if you want the official-warning channel; see the table above for the subscription catch |
+| `ANTHROPIC_BASE_URL`, `LLM_MODEL`, `LLM_EFFORT` | Only to override the defaults |
+
+Then check the deployment with `curl https://<host>/api/health` — it reports which providers are
+configured as booleans and never echoes a key.
+
+Four things worth knowing before the demo:
+
+- **Serve it over HTTPS.** Voice input and "use my location" are both browser features that need a
+  secure context; over plain `http://` on a LAN address the mic reports exactly that and stops.
+- **`/api/chat` declares `maxDuration = 60`.** A tool-use turn plus a streamed answer routinely
+  outruns the 10s serverless default, so a host that caps functions lower than 60s will truncate
+  answers mid-stream.
+- **The guardrails are per-instance.** Rate limits and the 8-stream concurrency cap live in process
+  memory (`src/lib/guardrails.ts`), so N instances mean N times the budget. Fine for a demo; swap the
+  store, not the call sites, if this ever scales out.
+- **Security headers** are set for every route in `next.config.ts`. There is deliberately no CSP yet —
+  the pre-paint theme script in `layout.tsx` would need a per-request nonce, and therefore middleware,
+  which would make the home page dynamic. `Permissions-Policy` grants `microphone` and `geolocation` to
+  `self`; removing either from that list breaks the corresponding feature.
+
 ## What it does
 
 - **Chat UI** — streaming answers over SSE, suggested questions on the empty state, conversation kept in
@@ -236,7 +278,13 @@ swap the store in `guardrails.ts`, not the call sites.
 - WRF needs a self-hosted run or an institutional feed. Adding one means writing a fetcher in
   `src/services/nwp/index.ts`; nothing above that file changes.
 - ERA5 lags roughly six days, so "yesterday" historical questions get a clamped range plus a note.
-- Voice input depends on the browser's speech API; unsupported browsers simply lose the mic button.
+- Voice input depends on the browser's speech API, which comes in two engines. The default one streams
+  the mic to the browser vendor's servers and fails with `network` when that service is out of reach — a
+  VPN or proxy in the path, or a Chromium build with no Google speech key, which is why the mic never
+  works in **Brave**. Chrome 139+ can instead recognise on-device, so the hook falls back to that and
+  downloads the language pack once; the wait is bounded and cancellable, because `install()` does not
+  reliably settle. **Edge** reports every language pack as unavailable and so can never go on-device, and
+  Firefox has no speech API at all and simply loses the mic button. **Demo the mic in Chrome.**
 - The no-LLM fallback is keyword matching, not language understanding. It handles "current / forecast /
   alerts" for one city in English, romanised Hindi and Devanagari, and says so behind its notice; anything
   outside that (history, NWP, irrigation, follow-ups) needs `ANTHROPIC_API_KEY`. It refuses rather than
