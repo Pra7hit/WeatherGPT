@@ -4,12 +4,15 @@ import { useEffect, useRef } from "react";
 
 import type { ChatMessage, Language } from "@/lib/types";
 
-import { MessageBubble } from "./MessageBubble";
 import { SuggestedQuestions } from "./SuggestedQuestions";
+import { Turn } from "./Turn";
 
 /**
  * The transcript. Follows the newest content while streaming, but stops
  * following as soon as the user scrolls up to re-read something.
+ *
+ * The turns carry their own rules — 2px for a question, a hairline for an answer
+ * — so this only has to hold the measure and the rhythm between them.
  */
 export function MessageList({
   messages,
@@ -34,9 +37,11 @@ export function MessageList({
 
   useEffect(() => {
     const node = scrollRef.current;
-    if (!node || !pinnedRef.current) return;
+    // The empty state is a top-of-page read: following it would open the app
+    // halfway down the suggestion list with the heading scrolled off.
+    if (!node || !pinnedRef.current || messages.length === 0) return;
     node.scrollTop = node.scrollHeight;
-  }, [signature, streaming]);
+  }, [signature, streaming, messages.length]);
 
   return (
     <div
@@ -45,15 +50,15 @@ export function MessageList({
         const node = event.currentTarget;
         pinnedRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 120;
       }}
-      className="scrollbar-slim flex-1 overflow-y-auto overscroll-contain"
+      className="scrollbar-hair flex-1 overflow-y-auto overscroll-contain"
     >
-      <div className="mx-auto w-full max-w-3xl px-4 pt-5 pb-10 sm:px-6">
+      <div className="mx-auto w-full max-w-3xl px-4 pt-4 pb-12 sm:px-6">
         {messages.length === 0 ? (
           <SuggestedQuestions language={language} onPick={onPick} />
         ) : (
-          <div className="space-y-7">
+          <div className="space-y-6">
             {messages.map((message) => (
-              <MessageBubble
+              <Turn
                 key={message.id}
                 message={message}
                 language={language}

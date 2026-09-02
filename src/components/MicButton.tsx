@@ -1,14 +1,21 @@
 "use client";
 
-import { MicIcon, SpinnerIcon } from "./icons";
+import { MeterIcon, MicIcon } from "./icons";
 
 /**
- * Microphone button. Hidden entirely when the browser has no speech recognition
+ * The VOICE switch. Hidden entirely when the browser has no speech recognition
  * rather than shown as a control that quietly does nothing.
  *
- * `preparing` is a third state, kept apart from `listening` on purpose: a
- * language pack is downloading and nothing is being recorded yet, so the button
- * spins but does not claim to be hearing anything. Both states cancel on click.
+ * Three states on one switch, and the ink tells them apart. Off is the mic
+ * glyph on ground. While listening the switch inverts and the glyph becomes a
+ * level meter — three bars, the only thing in the composer that moves, and it
+ * moves because something really is being recorded.
+ *
+ * `preparing` is the third: a language pack is downloading and nothing is being
+ * recorded yet, so the meter runs but the switch stays un-inverted. The motion
+ * says working, the un-inverted ink says not hearing you. Both busy states
+ * cancel on click, and the word never changes — it names the control, not what
+ * the control is currently doing.
  */
 export function MicButton({
   supported,
@@ -18,6 +25,7 @@ export function MicButton({
   label,
   listeningLabel,
   preparingLabel,
+  word,
   disabled,
 }: {
   supported: boolean;
@@ -27,6 +35,7 @@ export function MicButton({
   label: string;
   listeningLabel: string;
   preparingLabel?: string;
+  word: string;
   disabled?: boolean;
 }) {
   if (!supported) return null;
@@ -39,19 +48,16 @@ export function MicButton({
       type="button"
       onClick={onToggle}
       disabled={disabled}
+      /* Only `listening` presses the switch: inversion is the claim that audio
+         is being captured, and during a pack download that would be a lie. */
       aria-pressed={listening}
       aria-busy={preparing ? true : undefined}
       aria-label={title}
       title={title}
-      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors duration-150 disabled:opacity-40 ${
-        listening
-          ? "bg-sev-severe text-sev-severe-ink"
-          : preparing
-            ? "bg-surface-2 text-ink-2"
-            : "text-ink-3 hover:text-ink hover:bg-surface-2"
-      }`}
+      className="switch shrink-0"
     >
-      {busy ? <SpinnerIcon className="h-4 w-4" /> : <MicIcon className="h-5 w-5" />}
+      {busy ? <MeterIcon className="h-3.5 w-3.5" /> : <MicIcon className="h-3.5 w-3.5" />}
+      <span className="hidden sm:inline">{word}</span>
     </button>
   );
 }
