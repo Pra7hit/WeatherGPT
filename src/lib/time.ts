@@ -25,12 +25,18 @@ function localeFor(language: string): string {
   return language === "hi" ? "hi-IN" : "en-IN";
 }
 
+/**
+ * 24-hour, always. Every other clock in the interface - the header, the turn
+ * stamps, the retrieval times - is `hourCycle: "h23"`, and an axis that read
+ * "8:00 PM" next to a header showing 20:35 would look like two devices.
+ */
 export function hourLabel(naive: string, language = "en"): string {
   const date = asUtcDate(naive);
   if (!date) return naive;
   return new Intl.DateTimeFormat(localeFor(language), {
-    hour: "numeric",
+    hour: "2-digit",
     minute: "2-digit",
+    hourCycle: "h23",
     timeZone: "UTC",
   }).format(date);
 }
@@ -53,8 +59,9 @@ export function dateTimeLabel(naive: string, language = "en"): string {
     weekday: "short",
     day: "numeric",
     month: "short",
-    hour: "numeric",
+    hour: "2-digit",
     minute: "2-digit",
+    hourCycle: "h23",
     timeZone: "UTC",
   }).format(date);
 }

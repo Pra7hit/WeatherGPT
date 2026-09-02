@@ -7,15 +7,20 @@ import type { ClientLocation, Language } from "@/lib/types";
 import { t } from "@/lib/uiText";
 import type { Place } from "@/services/weather/types";
 
-import { CloseIcon, PinIcon, SearchIcon, SpinnerIcon } from "./icons";
+import { CloseIcon, MeterIcon, PinIcon, SearchIcon } from "./icons";
 
 /**
- * Location picker.
+ * The STATION switch and its panel.
  *
- * This only sets a *default* for questions that name no place - a question that
+ * This only sets a *default* for questions that name no place — a question that
  * says "Mumbai" always wins. Geolocation is requested on the button press only,
  * and city search goes through /api/geocode so the upstream call stays on the
  * server.
+ *
+ * The panel is a plate bolted under the head rule: 2px ink border, no rounding,
+ * no shadow, and every row a hairline rule that inverts under the pointer. A
+ * fixed station prints its coordinates, because that pair of numbers is what the
+ * forecast is actually fetched for.
  */
 
 function describe(place: Place): string {
@@ -101,25 +106,42 @@ export function LocationSelector({
         onClick={() => setOpen((current) => !current)}
         aria-expanded={open}
         aria-label={copy.location}
-        className="text-ink-2 hover:bg-surface-2 text-caption flex max-w-[8.5rem] shrink-0 items-center gap-1.5 rounded-lg px-2 py-1.5 font-medium transition-colors duration-150 sm:max-w-[12rem]"
+        data-on={open ? "true" : undefined}
+        className="switch w-full min-w-0 sm:w-auto sm:max-w-[14rem]"
       >
-        <PinIcon className="h-4 w-4 shrink-0" />
-        <span className="truncate">{label ?? copy.locationNone}</span>
+        <PinIcon className="h-3.5 w-3.5 shrink-0" />
+        {/* Unset reads "STATION —", not "STATION": the em-dash is how every empty
+            value in this product is printed, so the control shows its state
+            instead of just naming itself. */}
+        <span className="truncate">{label ?? `${copy.station} —`}</span>
       </button>
 
       {open ? (
-        <div className="border-line bg-raised shadow-e2 animate-settle absolute right-0 z-30 mt-2 w-[19rem] max-w-[calc(100vw-1.5rem)] rounded-2xl border p-3">
-          <div className="flex items-center justify-between">
-            <p className="text-ink-3 overline">{copy.location}</p>
+        <div className="border-ink bg-ground absolute right-0 z-30 mt-1 w-[19.5rem] max-w-[calc(100vw-1.5rem)] border-2 p-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="mono-label">{copy.location}</p>
             <button
               type="button"
               onClick={() => setOpen(false)}
-              className="text-ink-3 hover:text-ink hover:bg-surface-2 rounded-md p-1 transition-colors duration-150"
-              aria-label="Close"
+              aria-label={copy.close}
+              title={copy.close}
+              className="hover:bg-ink hover:text-ground -m-1 p-1 transition-colors duration-100"
             >
-              <CloseIcon className="h-4 w-4" />
+              <CloseIcon className="h-3.5 w-3.5" />
             </button>
           </div>
+
+          {location ? (
+            /* LAT / LON is a unit symbol, not chrome prose — it stays in Latin in
+               both languages, the way °C and mm do. */
+            <p className="border-hair mt-2 flex items-baseline gap-2 border-t pt-2">
+              <span className="mono-label shrink-0">LAT / LON</span>
+              <span aria-hidden="true" className="leader" />
+              <span className="numeric text-caption">
+                {location.latitude.toFixed(3)}, {location.longitude.toFixed(3)}
+              </span>
+            </p>
+          ) : null}
 
           <button
             type="button"
@@ -131,34 +153,37 @@ export function LocationSelector({
               }
             }}
             disabled={geo.status === "locating"}
-            className="border-line text-ink-2 hover:border-accent-line hover:bg-accent-soft hover:text-accent-ink text-caption mt-2 flex w-full items-center gap-2 rounded-xl border px-3 py-2 transition-colors duration-150 disabled:opacity-60"
+            className="switch mt-3 w-full justify-start"
           >
             {geo.status === "locating" ? (
-              <SpinnerIcon className="h-4 w-4" />
+              <MeterIcon className="h-3.5 w-3.5 shrink-0" />
             ) : (
-              <PinIcon className="h-4 w-4" />
+              <PinIcon className="h-3.5 w-3.5 shrink-0" />
             )}
-            <span>{geo.status === "locating" ? copy.locating : copy.useMyLocation}</span>
+            <span className="truncate">
+              {geo.status === "locating" ? copy.locating : copy.useMyLocation}
+            </span>
           </button>
 
-          {geo.error ? (
-            <p className="text-sev-moderate-ink text-caption mt-1.5">{geo.error}</p>
-          ) : null}
+          {geo.error ? <p className="numeric text-caption mt-2">{geo.error}</p> : null}
 
-          <div className="border-line focus-within:border-accent-line focus-within:outline-ring mt-3 flex items-center gap-2 rounded-xl border px-2.5 py-1.5 transition-colors duration-150 focus-within:outline-2 focus-within:outline-offset-2">
-            <SearchIcon className="text-ink-3 h-4 w-4 shrink-0" />
+          <div className="border-hair-3 focus-within:border-ink mt-3 flex items-center gap-2 border px-2 py-1.5 transition-colors duration-100">
+            <SearchIcon className="h-3.5 w-3.5 shrink-0" />
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder={copy.searchPlaceholder}
               aria-label={copy.searchPlaceholder}
-              className="text-ink placeholder:text-ink-3 focus-quiet text-caption w-full bg-transparent outline-none"
+              /* The prompt is the machine's, so it is set in the mono at full
+                 ink; the place name the user types arrives in the sans. Nothing
+                 here thins ink to suggest emptiness. */
+              className="text-caption prompt-hint w-full min-w-0 bg-transparent outline-none"
             />
-            {searching ? <SpinnerIcon className="text-ink-3 h-4 w-4" /> : null}
+            {searching ? <MeterIcon className="h-3.5 w-3.5 shrink-0" /> : null}
           </div>
 
           {results.length > 0 ? (
-            <ul className="scrollbar-slim mt-2 max-h-56 space-y-1 overflow-y-auto">
+            <ul className="scrollbar-hair mt-2 max-h-56 overflow-y-auto">
               {results.map((place) => (
                 <li key={`${place.latitude},${place.longitude},${place.name}`}>
                   <button
@@ -173,15 +198,18 @@ export function LocationSelector({
                       setOpen(false);
                       setQuery("");
                     }}
-                    className="text-ink-2 hover:bg-surface-2 hover:text-ink text-caption w-full rounded-lg px-2.5 py-2 text-left transition-colors duration-150"
+                    className="border-hair hover:bg-ink hover:text-ground text-caption flex w-full items-baseline gap-2 border-t px-1 py-2 text-left transition-colors duration-100"
                   >
-                    {describe(place)}
+                    <span className="min-w-0 flex-1">{describe(place)}</span>
+                    <span className="mono-label shrink-0">
+                      {place.latitude.toFixed(2)}, {place.longitude.toFixed(2)}
+                    </span>
                   </button>
                 </li>
               ))}
             </ul>
           ) : searched && !searching ? (
-            <p className="text-ink-3 text-caption mt-2">{copy.noResults}</p>
+            <p className="mono-label mt-3">{copy.noResults}</p>
           ) : null}
 
           {location ? (
@@ -191,7 +219,7 @@ export function LocationSelector({
                 onChange(null);
                 setOpen(false);
               }}
-              className="border-line text-ink-2 hover:bg-surface-2 hover:text-ink text-caption mt-3 w-full rounded-lg border px-3 py-1.5 transition-colors duration-150"
+              className="switch mt-3 w-full"
             >
               {copy.clearLocation}
             </button>

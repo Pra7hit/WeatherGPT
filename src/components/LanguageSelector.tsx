@@ -4,11 +4,14 @@ import type { Language } from "@/lib/types";
 import { t } from "@/lib/uiText";
 
 /**
- * Language selector.
+ * Language selector, as a bolted switch bank.
  *
  * "Auto" is the default and the honest one: the model replies in the language of
  * the question, including romanised Hindi. An explicit choice is only a
- * tiebreaker for the model and the language chrome and speech recogniser use.
+ * tiebreaker for the model, the chrome and the speech recogniser.
+ *
+ * The three switches share their rules — each one after the first pulls back a
+ * pixel — so the bank reads as one bolted plate rather than three buttons.
  */
 
 const OPTIONS: Array<{ value: Language; label: string }> = [
@@ -16,6 +19,11 @@ const OPTIONS: Array<{ value: Language; label: string }> = [
   { value: "en", label: "EN" },
   { value: "hi", label: "हि" },
 ];
+
+/** Which segments are set in Devanagari depends on the UI language — "स्वतः" and
+ *  "हि" both are — so the script is read off the rendered label rather than
+ *  hard-coded against a language value. */
+const DEVANAGARI = /\p{Script=Devanagari}/u;
 
 export function LanguageSelector({
   language,
@@ -27,26 +35,22 @@ export function LanguageSelector({
   const copy = t(language);
 
   return (
-    <div
-      role="group"
-      aria-label={copy.language}
-      className="bg-surface-2 flex shrink-0 items-center gap-0.5 rounded-lg p-0.5"
-    >
-      {OPTIONS.map((option) => {
-        const active = option.value === language;
+    <div role="group" aria-label={copy.language} className="flex shrink-0">
+      {OPTIONS.map((option, index) => {
+        const label = option.value === "auto" ? copy.languageAuto : option.label;
+        const deva = DEVANAGARI.test(label);
         return (
           <button
             key={option.value}
             type="button"
             onClick={() => onChange(option.value)}
-            aria-pressed={active}
-            className={`text-caption rounded-md px-2 py-1 font-medium transition-colors duration-150 ${
-              active
-                ? "bg-raised text-ink shadow-e1"
-                : "text-ink-3 hover:text-ink hover:bg-surface-3"
+            aria-pressed={option.value === language}
+            lang={deva ? "hi" : undefined}
+            className={`switch min-w-[2.75rem] px-2 ${index > 0 ? "-ml-px" : ""} ${
+              deva ? "deva-label" : ""
             }`}
           >
-            {option.value === "auto" ? copy.languageAuto : option.label}
+            {label}
           </button>
         );
       })}

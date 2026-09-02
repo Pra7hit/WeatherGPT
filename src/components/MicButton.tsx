@@ -1,10 +1,14 @@
 "use client";
 
-import { MicIcon, SpinnerIcon } from "./icons";
+import { MeterIcon, MicIcon } from "./icons";
 
 /**
- * Microphone button. Hidden entirely when the browser has no speech recognition
+ * The VOICE switch. Hidden entirely when the browser has no speech recognition
  * rather than shown as a control that quietly does nothing.
+ *
+ * While listening the switch inverts and the mic glyph is replaced by a level
+ * meter — three bars, the only thing in the composer that moves, and it moves
+ * because something really is being recorded.
  */
 export function MicButton({
   supported,
@@ -12,6 +16,7 @@ export function MicButton({
   onToggle,
   label,
   listeningLabel,
+  word,
   disabled,
 }: {
   supported: boolean;
@@ -19,6 +24,7 @@ export function MicButton({
   onToggle: () => void;
   label: string;
   listeningLabel: string;
+  word: string;
   disabled?: boolean;
 }) {
   if (!supported) return null;
@@ -31,13 +37,10 @@ export function MicButton({
       aria-pressed={listening}
       aria-label={listening ? listeningLabel : label}
       title={listening ? listeningLabel : label}
-      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors duration-150 disabled:opacity-40 ${
-        listening
-          ? "bg-sev-severe text-sev-severe-ink"
-          : "text-ink-3 hover:text-ink hover:bg-surface-2"
-      }`}
+      className="switch shrink-0"
     >
-      {listening ? <SpinnerIcon className="h-4 w-4" /> : <MicIcon className="h-5 w-5" />}
+      {listening ? <MeterIcon className="h-3.5 w-3.5" /> : <MicIcon className="h-3.5 w-3.5" />}
+      <span className="hidden sm:inline">{word}</span>
     </button>
   );
 }

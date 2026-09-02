@@ -16,10 +16,16 @@ const STORAGE_KEY = "weathergpt.theme";
 
 export type Theme = "light" | "dark";
 
-function subscribe(onChange: () => void): () => void {
+/** Exported so anything else reading the theme off the DOM — the canvases, via
+ *  `useInk` — can share one observer contract rather than installing its own. */
+export function subscribeThemeClass(onChange: () => void): () => void {
   const observer = new MutationObserver(onChange);
   observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
   return () => observer.disconnect();
+}
+
+function subscribe(onChange: () => void): () => void {
+  return subscribeThemeClass(onChange);
 }
 
 function readTheme(): Theme {

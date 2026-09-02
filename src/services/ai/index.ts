@@ -105,6 +105,19 @@ export async function runConversation({ body, emit, signal }: RunOptions): Promi
   });
   const ctx = createExecContext(body.language === "hi" ? "hi" : "en", body.location ?? null);
 
+  /**
+   * Text arrives as one stream per iteration, so an answer that speaks both
+   * before and after a lookup reaches the client as two blocks with nothing
+   * between them - "...I'll check it for you." running straight into the next
+   * sentence. The seam gets the paragraph break the model never had the chance
+   * to write, and only the tail is kept because that is all the join needs.
+   */
+  let tail = "";
+  const emitText = (delta: string) => {
+    tail = (tail + delta).slice(-2);
+    emit({ t: "text", d: delta });
+  };
+
   for (let iteration = 0; iteration < MAX_ITERATIONS; iteration += 1) {
     let message: Anthropic.Message;
     try {
@@ -120,7 +133,14 @@ export async function runConversation({ body, emit, signal }: RunOptions): Promi
         },
         { signal },
       );
-      stream.on("text", (delta) => emit({ t: "text", d: delta }));
+      let seamed = false;
+      stream.on("text", (delta) => {
+        if (!seamed) {
+          seamed = true;
+          if (tail.length > 0 && tail !== "\n\n") emitText(tail.endsWith("\n") ? "\n" : "\n\n");
+        }
+        emitText(delta);
+      });
       message = await stream.finalMessage();
     } catch (error) {
       if (signal?.aborted) return;
