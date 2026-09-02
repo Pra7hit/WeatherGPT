@@ -101,6 +101,14 @@ export function Composer({
             <div aria-live="polite" className="mr-auto min-w-0 flex-1">
               {speech.listening && speech.interim ? (
                 <p className="numeric text-caption truncate">{speech.interim}</p>
+              ) : speech.notice ? (
+                /* Voice progress — switching to the on-device engine, fetching its
+                   language pack — shares the caption register with the transcript
+                   and the terminal message, because this slot has no colour to
+                   grade them with. What keeps them apart is that only one is ever
+                   set: the hook clears the notice the moment it either succeeds or
+                   gives up. */
+                <p className="numeric text-caption">{speech.notice}</p>
               ) : speech.error ? (
                 <p className="numeric text-caption">{speech.error}</p>
               ) : null}
