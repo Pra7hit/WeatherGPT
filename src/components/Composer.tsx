@@ -85,9 +85,11 @@ export function Composer({
           <MicButton
             supported={speech.supported}
             listening={speech.listening}
+            preparing={speech.preparing}
             onToggle={speech.toggle}
             label={copy.mic}
             listeningLabel={copy.micListening}
+            preparingLabel={copy.micPreparing}
             disabled={streaming}
           />
 

@@ -116,8 +116,13 @@ const TEXT = {
     blockedByBrowser: "This browser blocks the speech service. Try Chrome, or type instead.",
     unreachable:
       "The speech service is unreachable — a VPN, proxy or firewall may be blocking it. Chrome 139+ can listen offline; otherwise please type.",
+    packFailed:
+      "The offline voice pack could not be downloaded and the speech service is unreachable. Please type instead.",
+    packFailedBrave:
+      "This browser cannot reach the speech service, and the offline voice pack would not download. Chrome can listen offline — otherwise please type.",
     switching: "Speech service unreachable — switching to offline voice…",
-    preparing: "Preparing offline voice (one-time download)…",
+    preparing: "Preparing offline voice (one-time download) — tap VOICE to cancel.",
+    downloading: "Downloading the offline voice pack — tap VOICE to cancel.",
     retrying: "Retrying…",
   },
   hi: {
@@ -132,8 +137,13 @@ const TEXT = {
     blockedByBrowser: "यह ब्राउज़र स्पीच सेवा रोकता है। Chrome आज़माएँ, या टाइप करें।",
     unreachable:
       "स्पीच सेवा तक नहीं पहुँच पाए — VPN, प्रॉक्सी या फ़ायरवॉल रोक रहा हो सकता है। Chrome 139+ ऑफ़लाइन सुन सकता है; वरना कृपया टाइप करें।",
+    packFailed:
+      "ऑफ़लाइन वॉइस पैक डाउनलोड नहीं हो सका और स्पीच सेवा भी नहीं मिली। कृपया टाइप करें।",
+    packFailedBrave:
+      "यह ब्राउज़र स्पीच सेवा तक नहीं पहुँच सकता, और ऑफ़लाइन वॉइस पैक भी डाउनलोड नहीं हुआ। Chrome ऑफ़लाइन सुन सकता है — वरना कृपया टाइप करें।",
     switching: "स्पीच सेवा नहीं मिली — ऑफ़लाइन वॉइस पर जा रहे हैं…",
-    preparing: "ऑफ़लाइन वॉइस तैयार हो रही है (एक बार डाउनलोड)…",
+    preparing: "ऑफ़लाइन वॉइस तैयार हो रही है (एक बार डाउनलोड) — रोकने के लिए VOICE दबाएँ।",
+    downloading: "ऑफ़लाइन वॉइस पैक डाउनलोड हो रहा है — रोकने के लिए VOICE दबाएँ।",
     retrying: "फिर कोशिश कर रहे हैं…",
   },
 } as const;
@@ -142,6 +152,16 @@ const TEXT = {
 function textFor(lang: string) {
   return lang.toLowerCase().startsWith("hi") ? TEXT.hi : TEXT.en;
 }
+
+/** How often the pack install is checked on for signs of life. */
+const POLL_MS = 1500;
+/** How long a pack install may show no progress at all before we walk away. */
+const STALL_MS = 12_000;
+/** Hard ceiling on an install, however healthy it looks. */
+const MAX_PREPARE_MS = 90_000;
+
+/** A rejection handler for probes whose failure is already covered elsewhere. */
+const noop = () => {};
 
 export interface SpeechRecognitionOptions {
   /** BCP-47 tag, e.g. "en-IN" or "hi-IN". */
@@ -168,6 +188,8 @@ export function useSpeechRecognition({ lang, onFinal }: SpeechRecognitionOptions
   const [error, setError] = useState<string | null>(null);
   /** Transient progress, not a failure: shown in the same slot, styled the same. */
   const [notice, setNotice] = useState<string | null>(null);
+  /** True while a language pack is installing — nothing is being recorded yet. */
+  const [preparing, setPreparing] = useState(false);
 
   const copy = textFor(lang);
 
@@ -183,6 +205,12 @@ export function useSpeechRecognition({ lang, onFinal }: SpeechRecognitionOptions
   /** Brave never reaches Google's speech service, and it is worth saying so. */
   const braveRef = useRef(false);
   const timerRef = useRef<number | null>(null);
+  /** Interval that watches a pack install for progress. */
+  const watchdogRef = useRef<number | null>(null);
+  /** Mirrors `preparing` for the callbacks that must not depend on a render. */
+  const preparingRef = useRef(false);
+  /** Set once a pack install has been given up on, so the message can say so. */
+  const packFailedRef = useRef(false);
   /** One cloud retry per user-initiated session, not per error. */
   const retriedRef = useRef(false);
 
@@ -231,12 +259,17 @@ export function useSpeechRecognition({ lang, onFinal }: SpeechRecognitionOptions
       window.clearTimeout(timerRef.current);
       timerRef.current = null;
     }
+    if (watchdogRef.current !== null) {
+      window.clearInterval(watchdogRef.current);
+      watchdogRef.current = null;
+    }
   }, []);
 
   useEffect(
     () => () => {
       epochRef.current += 1;
       if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+      if (watchdogRef.current !== null) window.clearInterval(watchdogRef.current);
       recognitionRef.current?.abort();
     },
     [],
@@ -245,12 +278,16 @@ export function useSpeechRecognition({ lang, onFinal }: SpeechRecognitionOptions
   /**
    * Why the cloud engine could not be reached, in the order the causes can be
    * established: a page served over plain http on a LAN address and an offline
-   * machine are certainties, Brave is a certainty about this browser, and the
-   * rest is the honest "something in the path is blocking it".
+   * machine are certainties, a failed pack download is a certainty about the one
+   * escape route, Brave is a certainty about this browser, and the rest is the
+   * honest "something in the path is blocking it".
    */
   const diagnose = useCallback(() => {
     if (typeof window !== "undefined" && !window.isSecureContext) return copy.insecure;
     if (typeof navigator !== "undefined" && navigator.onLine === false) return copy.offline;
+    if (packFailedRef.current) {
+      return braveRef.current ? copy.packFailedBrave : copy.packFailed;
+    }
     if (braveRef.current) return copy.blockedByBrowser;
     return copy.unreachable;
   }, [copy]);
@@ -260,6 +297,8 @@ export function useSpeechRecognition({ lang, onFinal }: SpeechRecognitionOptions
     setNotice(null);
     setInterim("");
     setListening(false);
+    preparingRef.current = false;
+    setPreparing(false);
   }, []);
 
   /** True when the local engine is installed or still installable. */
@@ -271,60 +310,6 @@ export function useSpeechRecognition({ lang, onFinal }: SpeechRecognitionOptions
     const status = localRef.current;
     return status === "available" || status === "downloadable" || status === "downloading";
   }, []);
-
-  /**
-   * Abandon the cloud session and come up on the local engine, installing the
-   * language pack first if it is not there yet. The install is a one-time
-   * download of real size, which is why it is never done speculatively — only
-   * once the cloud engine has actually failed, and with the wait on screen.
-   */
-  const goLocal = useCallback(() => {
-    const Ctor = getConstructor();
-    if (!Ctor) return;
-
-    epochRef.current += 1;
-    const epoch = epochRef.current;
-    recognitionRef.current?.abort();
-    recognitionRef.current = null;
-    setError(null);
-    setInterim("");
-    setListening(false);
-
-    if (localRef.current === "available") {
-      setNotice(copy.switching);
-      // A short gap: Chrome reports `network` again if a new session opens while
-      // the previous one is still tearing down.
-      clearTimer();
-      timerRef.current = window.setTimeout(() => {
-        timerRef.current = null;
-        if (epoch === epochRef.current) launchRef.current("local");
-      }, 250);
-      return;
-    }
-
-    setNotice(copy.preparing);
-    const install = Ctor.install;
-    if (!install) {
-      fail(diagnose());
-      return;
-    }
-    install({ langs: [lang], processLocally: true })
-      .then((installed) => {
-        if (epoch !== epochRef.current) return;
-        if (!installed) {
-          localRef.current = "unavailable";
-          fail(diagnose());
-          return;
-        }
-        localRef.current = "available";
-        launchRef.current("local");
-      })
-      .catch(() => {
-        if (epoch !== epochRef.current) return;
-        localRef.current = "unavailable";
-        fail(diagnose());
-      });
-  }, [clearTimer, copy, diagnose, fail, lang]);
 
   /**
    * One deferred cloud attempt per user-initiated session, shared by every code
@@ -339,6 +324,8 @@ export function useSpeechRecognition({ lang, onFinal }: SpeechRecognitionOptions
     setNotice(copy.retrying);
     setInterim("");
     setListening(false);
+    preparingRef.current = false;
+    setPreparing(false);
     clearTimer();
     timerRef.current = window.setTimeout(() => {
       timerRef.current = null;
@@ -346,6 +333,110 @@ export function useSpeechRecognition({ lang, onFinal }: SpeechRecognitionOptions
     }, 400);
     return true;
   }, [clearTimer, copy]);
+
+  /**
+   * Stop counting on the local engine for the rest of this page's life and take
+   * whatever is left: one cloud attempt if the budget is unspent, otherwise an
+   * error that says the pack could not be fetched rather than blaming the
+   * network alone.
+   */
+  const abandonLocal = useCallback(() => {
+    localRef.current = "unavailable";
+    packFailedRef.current = true;
+    clearTimer();
+    preparingRef.current = false;
+    setPreparing(false);
+    if (deferCloudAttempt()) return;
+    fail(diagnose());
+  }, [clearTimer, deferCloudAttempt, diagnose, fail]);
+
+  /**
+   * Abandon the cloud session and come up on the local engine, installing the
+   * language pack first if it is not there yet. The install is a one-time
+   * download of real size, which is why it is never done speculatively — only
+   * once the cloud engine has actually failed, and with the wait on screen.
+   */
+  const goLocal = useCallback(() => {
+    const Ctor = getConstructor();
+    const install = Ctor?.install;
+    const available = Ctor?.available;
+    if (!Ctor || !install || !available) {
+      abandonLocal();
+      return;
+    }
+
+    clearTimer();
+    epochRef.current += 1;
+    const epoch = epochRef.current;
+    recognitionRef.current?.abort();
+    recognitionRef.current = null;
+    setError(null);
+    setInterim("");
+    setListening(false);
+
+    if (localRef.current === "available") {
+      setNotice(copy.switching);
+      // A short gap: Chrome reports `network` again if a new session opens while
+      // the previous one is still tearing down.
+      timerRef.current = window.setTimeout(() => {
+        timerRef.current = null;
+        if (epoch === epochRef.current) launchRef.current("local");
+      }, 250);
+      return;
+    }
+
+    setNotice(copy.preparing);
+    preparingRef.current = true;
+    setPreparing(true);
+
+    let settled = false;
+    const conclude = (installed: boolean) => {
+      if (settled || epoch !== epochRef.current) return;
+      settled = true;
+      clearTimer();
+      if (!installed) {
+        abandonLocal();
+        return;
+      }
+      localRef.current = "available";
+      preparingRef.current = false;
+      setPreparing(false);
+      launchRef.current("local");
+    };
+
+    install({ langs: [lang], processLocally: true }).then(
+      (installed) => conclude(installed),
+      () => conclude(false),
+    );
+
+    // `install()` is not reliably a promise that settles. A browser that reports
+    // a pack as downloadable but cannot actually fetch it — one with the vendor's
+    // model service stripped out, say — leaves it pending forever, which is a
+    // spinner the user can never get out of. So watch `available()` for signs of
+    // life instead of trusting it: "downloading" is real progress and buys more
+    // time, and anything else for long enough means the fetch never started.
+    const deadline = Date.now() + MAX_PREPARE_MS;
+    let patienceUntil = Date.now() + STALL_MS;
+    watchdogRef.current = window.setInterval(() => {
+      if (settled || epoch !== epochRef.current) {
+        clearTimer();
+        return;
+      }
+      // Checked here rather than in the callback below, so a hanging
+      // `available()` cannot stall the watchdog the way `install()` can.
+      if (Date.now() > patienceUntil || Date.now() > deadline) {
+        conclude(false);
+        return;
+      }
+      available({ langs: [lang], processLocally: true }).then((status) => {
+        if (status === "available") conclude(true);
+        else if (status === "downloading") {
+          setNotice(copy.downloading);
+          patienceUntil = Date.now() + STALL_MS;
+        }
+      }, noop);
+    }, POLL_MS);
+  }, [abandonLocal, clearTimer, copy, lang]);
 
   /**
    * Map an error code to the next move. The cloud engine gets exactly two
@@ -491,6 +582,16 @@ export function useSpeechRecognition({ lang, onFinal }: SpeechRecognitionOptions
 
   const stop = useCallback(() => {
     clearTimer();
+    if (preparingRef.current) {
+      // Nothing is being recorded yet, so there is no transcript to lose: walk
+      // away from the pending install by invalidating its callbacks. The local
+      // engine is struck off for the rest of the page's life, because the next
+      // click should reach for the cloud rather than re-enter the same wait.
+      epochRef.current += 1;
+      preparingRef.current = false;
+      setPreparing(false);
+      localRef.current = "unavailable";
+    }
     setNotice(null);
     recognitionRef.current?.stop();
     setListening(false);
@@ -509,9 +610,9 @@ export function useSpeechRecognition({ lang, onFinal }: SpeechRecognitionOptions
   }, [clearTimer, launch]);
 
   const toggle = useCallback(() => {
-    if (listening) stop();
+    if (listening || preparing) stop();
     else start();
-  }, [listening, start, stop]);
+  }, [listening, preparing, start, stop]);
 
-  return { supported, listening, interim, error, notice, start, stop, toggle };
+  return { supported, listening, preparing, interim, error, notice, start, stop, toggle };
 }
