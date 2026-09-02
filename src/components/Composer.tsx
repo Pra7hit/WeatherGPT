@@ -117,6 +117,11 @@ export function Composer({
         {speech.listening && speech.interim ? (
           <p className="text-ink-3 text-caption mt-1.5 px-2 italic">{speech.interim}</p>
         ) : null}
+        {/* Voice progress - falling back to the offline engine, installing its
+            language pack - is not a failure, so it is not set in severe ink. */}
+        {speech.notice ? (
+          <p className="text-ink-3 text-caption mt-1.5 px-2">{speech.notice}</p>
+        ) : null}
         {speech.error ? (
           <p className="text-sev-severe-ink text-caption mt-1.5 px-2">{speech.error}</p>
         ) : null}
